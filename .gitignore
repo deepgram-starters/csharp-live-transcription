@@ -1,0 +1,21 @@
+# .NET build output
+[Bb]in/
+[Oo]bj/
+
+# IDE
+.vs/
+*.user
+*.suo
+
+# Environment
+.env
+
+# Frontend
+frontend/node_modules/
+frontend/.vite/
+
+# Test results
+test-results/
+
+# macOS
+.DS_Store
