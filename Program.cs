@@ -5,7 +5,7 @@
  * messages between browser clients and Deepgram's Live Speech-to-Text API.
  *
  * Key Features:
- * - WebSocket proxy: /stt/stream → wss://api.deepgram.com/v1/listen
+ * - WebSocket proxy: /api/live-transcription → wss://api.deepgram.com/v1/listen
  * - Bidirectional message forwarding (binary audio + JSON results)
  * - JWT session auth with page nonce (production only)
  * - Metadata endpoint: GET /api/metadata
@@ -66,7 +66,7 @@ bool ConsumeNonce(string nonce)
 }
 
 // Cleanup expired nonces every 60 seconds
-var nonceCleanupTimer = new Timer(_ =>
+var nonceCleanupTimer = new Timer(state =>
 {
     var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
     foreach (var kvp in sessionNonces)
@@ -313,7 +313,7 @@ async Task HandleSttStream(WebSocket clientWs, string? queryString, string apiKe
 {
     var connectionId = Guid.NewGuid().ToString("N")[..8];
     activeConnections[connectionId] = clientWs;
-    Console.WriteLine($"[{connectionId}] Client connected to /stt/stream");
+    Console.WriteLine($"[{connectionId}] Client connected to /api/live-transcription");
 
     var deepgramUrl = BuildDeepgramUrl(queryString);
     Console.WriteLine($"[{connectionId}] Connecting to Deepgram: {deepgramUrl}");
@@ -391,7 +391,7 @@ async Task HandleSttStream(WebSocket clientWs, string? queryString, string apiKe
 
 app.Use(async (context, next) =>
 {
-    if (context.Request.Path == "/stt/stream" && context.WebSockets.IsWebSocketRequest)
+    if (context.Request.Path == "/api/live-transcription" && context.WebSockets.IsWebSocketRequest)
     {
         // Validate JWT from WebSocket subprotocol
         var protocolHeader = context.Request.Headers["Sec-WebSocket-Protocol"].FirstOrDefault();
@@ -493,7 +493,7 @@ Console.WriteLine(new string('=', 70));
 Console.WriteLine($"🚀 Backend API Server running at http://localhost:{port}");
 Console.WriteLine($"📡 CORS enabled for http://localhost:{frontendPort}");
 Console.WriteLine($"📡 GET  /api/session{nonceStatus}");
-Console.WriteLine($"📡 WebSocket endpoint: ws://localhost:{port}/stt/stream (auth required)");
+Console.WriteLine($"📡 WebSocket endpoint: ws://localhost:{port}/api/live-transcription (auth required)");
 Console.WriteLine($"📡 GET  /api/metadata");
 Console.WriteLine($"\n💡 Frontend should be running on http://localhost:{frontendPort}");
 Console.WriteLine(new string('=', 70));
