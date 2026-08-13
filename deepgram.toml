@@ -6,7 +6,7 @@ repository = "https://github.com/deepgram-starters/csharp-live-transcription"
 useCase = "live-transcription"
 language = "csharp"
 framework = "dotnet"
-sdk = "N/A"
+sdk = "6.9.0"
 tags = ["live-transcription", "stt", "speech-to-text", "asr", "real-time", "streaming", "websocket", "csharp", "dotnet"]
 
 # Check prerequisites
