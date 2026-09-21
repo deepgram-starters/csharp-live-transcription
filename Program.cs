@@ -174,6 +174,7 @@ static LiveSchema BuildLiveSchema(string? queryString)
         Model = query["model"] ?? "nova-3",
         Language = query["language"] ?? "en",
         SmartFormat = (query["smart_format"] ?? "true") == "true",
+        InterimResults = (query["interim_results"] ?? "true") == "true",
         Encoding = query["encoding"] ?? "linear16",
         SampleRate = int.TryParse(query["sample_rate"], out var sr) ? sr : 16000,
         Channels = int.TryParse(query["channels"], out var ch) ? ch : 1,
@@ -242,16 +243,25 @@ async Task HandleSttStream(WebSocket clientWs, string? queryString, string apiKe
         }
         Console.WriteLine($"[{connectionId}] ✓ Connected to Deepgram STT API");
 
-        // Forward the browser's binary audio into Deepgram until the client disconnects.
+        // Forward browser audio and text control frames into Deepgram until the client disconnects.
         var buffer = new byte[8192];
         while (clientWs.State == WebSocketState.Open)
         {
             var result = await clientWs.ReceiveAsync(new ArraySegment<byte>(buffer), appCt);
             if (result.MessageType == WebSocketMessageType.Close) break;
-            if (result.MessageType != WebSocketMessageType.Binary || result.Count == 0) continue;
+            if (result.Count == 0) continue;
 
             var chunk = new byte[result.Count];
             Array.Copy(buffer, chunk, result.Count);
+
+            if (result.MessageType == WebSocketMessageType.Text)
+            {
+                // Queue controls after prior audio so CloseStream cannot overtake it.
+                liveClient.SendMessage(chunk);
+                continue;
+            }
+
+            if (result.MessageType != WebSocketMessageType.Binary) continue;
             liveClient.Send(chunk);
         }
     }
