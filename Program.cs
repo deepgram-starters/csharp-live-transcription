@@ -18,6 +18,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Deepgram;
 using Deepgram.Models.Listen.v2.WebSocket;
 using Microsoft.IdentityModel.Tokens;
@@ -38,6 +39,7 @@ DotNetEnv.Env.Load();
 var port = int.TryParse(Environment.GetEnvironmentVariable("PORT"), out var p) ? p : 8081;
 var host = Environment.GetEnvironmentVariable("HOST") ?? "0.0.0.0";
 var frontendPort = int.TryParse(Environment.GetEnvironmentVariable("FRONTEND_PORT"), out var fp) ? fp : 8080;
+var browserJsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 
 // ============================================================================
 // SESSION AUTH - JWT tokens with rate limiting for production security
@@ -202,12 +204,12 @@ async Task HandleSttStream(WebSocket clientWs, string? queryString, string apiKe
     // Deepgram live transcription client (replaces the raw ClientWebSocket).
     var liveClient = ClientFactory.CreateListenWebSocketClient(apiKey);
 
-    // Forward each Deepgram event to the browser as the raw JSON the frontend expects.
-    await liveClient.Subscribe(new EventHandler<ResultResponse>((_, e) => outbound.Writer.TryWrite(e.ToString())));
-    await liveClient.Subscribe(new EventHandler<MetadataResponse>((_, e) => outbound.Writer.TryWrite(e.ToString())));
-    await liveClient.Subscribe(new EventHandler<SpeechStartedResponse>((_, e) => outbound.Writer.TryWrite(e.ToString())));
-    await liveClient.Subscribe(new EventHandler<UtteranceEndResponse>((_, e) => outbound.Writer.TryWrite(e.ToString())));
-    await liveClient.Subscribe(new EventHandler<ErrorResponse>((_, e) => outbound.Writer.TryWrite(e.ToString())));
+    // Serialize SDK events without the SDK's unsafe ToString() unescaping behavior.
+    await liveClient.Subscribe(new EventHandler<ResultResponse>((_, e) => outbound.Writer.TryWrite(JsonSerializer.Serialize(e, browserJsonOptions))));
+    await liveClient.Subscribe(new EventHandler<MetadataResponse>((_, e) => outbound.Writer.TryWrite(JsonSerializer.Serialize(e, browserJsonOptions))));
+    await liveClient.Subscribe(new EventHandler<SpeechStartedResponse>((_, e) => outbound.Writer.TryWrite(JsonSerializer.Serialize(e, browserJsonOptions))));
+    await liveClient.Subscribe(new EventHandler<UtteranceEndResponse>((_, e) => outbound.Writer.TryWrite(JsonSerializer.Serialize(e, browserJsonOptions))));
+    await liveClient.Subscribe(new EventHandler<ErrorResponse>((_, e) => outbound.Writer.TryWrite(JsonSerializer.Serialize(e, browserJsonOptions))));
 
     // Pump queued messages to the browser one at a time.
     var pump = Task.Run(async () =>
