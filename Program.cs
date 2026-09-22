@@ -229,6 +229,21 @@ async Task HandleSttStream(WebSocket clientWs, string? queryString, string apiKe
     var closeStatus = WebSocketCloseStatus.NormalClosure;
     var closeDescription = "Connection ended";
 
+    async Task SendConnectionError()
+    {
+        if (clientWs.State != WebSocketState.Open) return;
+
+        try
+        {
+            await clientWs.SendAsync(
+                Encoding.UTF8.GetBytes("{\"type\":\"Error\",\"description\":\"Deepgram connection error\",\"code\":\"CONNECTION_FAILED\"}"),
+                WebSocketMessageType.Text,
+                true,
+                CancellationToken.None);
+        }
+        catch { }
+    }
+
     try
     {
         var schema = BuildLiveSchema(queryString);
@@ -237,13 +252,9 @@ async Task HandleSttStream(WebSocket clientWs, string? queryString, string apiKe
         if (!await liveClient.Connect(schema))
         {
             Console.Error.WriteLine($"[{connectionId}] Failed to connect to Deepgram");
-            if (clientWs.State == WebSocketState.Open)
-            {
-                await clientWs.CloseAsync(
-                    WebSocketCloseStatus.InternalServerError,
-                    "Deepgram connection error",
-                    CancellationToken.None);
-            }
+            closeStatus = WebSocketCloseStatus.InternalServerError;
+            closeDescription = "Deepgram connection error";
+            await SendConnectionError();
             return;
         }
         Console.WriteLine($"[{connectionId}] ✓ Connected to Deepgram STT API");
@@ -283,18 +294,7 @@ async Task HandleSttStream(WebSocket clientWs, string? queryString, string apiKe
         Console.Error.WriteLine($"[{connectionId}] Deepgram connection error: {ex.GetType().Name}");
         closeStatus = WebSocketCloseStatus.InternalServerError;
         closeDescription = "Deepgram connection error";
-        if (clientWs.State == WebSocketState.Open)
-        {
-            try
-            {
-                await clientWs.SendAsync(
-                    Encoding.UTF8.GetBytes("{\"type\":\"Error\",\"description\":\"Deepgram connection error\",\"code\":\"CONNECTION_FAILED\"}"),
-                    WebSocketMessageType.Text,
-                    true,
-                    CancellationToken.None);
-            }
-            catch { }
-        }
+        await SendConnectionError();
     }
     finally
     {
