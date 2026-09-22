@@ -176,7 +176,7 @@ static LiveSchema BuildLiveSchema(string? queryString)
         Model = query["model"] ?? "nova-3",
         Language = query["language"] ?? "en",
         SmartFormat = (query["smart_format"] ?? "true") == "true",
-        InterimResults = (query["interim_results"] ?? "true") == "true",
+        InterimResults = (query["interim_results"] ?? "false") == "true",
         Encoding = query["encoding"] ?? "linear16",
         SampleRate = int.TryParse(query["sample_rate"], out var sr) ? sr : 16000,
         Channels = int.TryParse(query["channels"], out var ch) ? ch : 1,
@@ -189,8 +189,8 @@ static LiveSchema BuildLiveSchema(string? queryString)
 /// linear16 audio and receives Deepgram's native JSON messages ("Results",
 /// "Metadata", ...). Only the Deepgram-facing side now uses the Deepgram .NET SDK
 /// (ClientFactory.CreateListenWebSocketClient) instead of a raw ClientWebSocket.
-/// The SDK's typed response records serialize back to Deepgram's wire format via
-/// ToString(), so the frontend needs no changes.
+/// SDK response records are serialized with System.Text.Json so transcript text
+/// retains valid wire JSON for the frontend.
 async Task HandleSttStream(WebSocket clientWs, string? queryString, string apiKey, CancellationToken appCt)
 {
     var connectionId = Guid.NewGuid().ToString("N")[..8];
@@ -225,6 +225,9 @@ async Task HandleSttStream(WebSocket clientWs, string? queryString, string apiKe
         catch (OperationCanceledException) { }
         catch (WebSocketException) { }
     });
+
+    var closeStatus = WebSocketCloseStatus.NormalClosure;
+    var closeDescription = "Connection ended";
 
     try
     {
@@ -275,6 +278,24 @@ async Task HandleSttStream(WebSocket clientWs, string? queryString, string apiKe
     {
         Console.Error.WriteLine($"[{connectionId}] WebSocket error: {ex.Message}");
     }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"[{connectionId}] Deepgram connection error: {ex.GetType().Name}");
+        closeStatus = WebSocketCloseStatus.InternalServerError;
+        closeDescription = "Deepgram connection error";
+        if (clientWs.State == WebSocketState.Open)
+        {
+            try
+            {
+                await clientWs.SendAsync(
+                    Encoding.UTF8.GetBytes("{\"type\":\"Error\",\"description\":\"Deepgram connection error\",\"code\":\"CONNECTION_FAILED\"}"),
+                    WebSocketMessageType.Text,
+                    true,
+                    CancellationToken.None);
+            }
+            catch { }
+        }
+    }
     finally
     {
         try { await liveClient.Stop(); } catch { }
@@ -286,8 +307,8 @@ async Task HandleSttStream(WebSocket clientWs, string? queryString, string apiKe
             try
             {
                 await clientWs.CloseAsync(
-                    WebSocketCloseStatus.NormalClosure,
-                    "Connection ended",
+                    closeStatus,
+                    closeDescription,
                     CancellationToken.None);
             }
             catch { }
