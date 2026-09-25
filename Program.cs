@@ -19,6 +19,7 @@ using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using CsharpLiveTranscription;
 using Deepgram;
 using Deepgram.Models.Listen.v2.WebSocket;
 using Microsoft.IdentityModel.Tokens;
@@ -46,6 +47,7 @@ var browserJsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 // ============================================================================
 
 var sessionSecretEnv = Environment.GetEnvironmentVariable("SESSION_SECRET");
+AppConfiguration.ValidateSessionSecret(sessionSecretEnv);
 var sessionSecret = sessionSecretEnv ?? Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
 var sessionSecretKey = new SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes(sessionSecret));
 
@@ -165,24 +167,6 @@ app.MapGet("/api/session", () =>
 // HELPER FUNCTIONS
 // ============================================================================
 
-/// Builds a Deepgram LiveSchema from the query parameters forwarded by the client.
-/// These are the same parameters the raw proxy previously appended to the Deepgram URL.
-static LiveSchema BuildLiveSchema(string? queryString)
-{
-    var query = System.Web.HttpUtility.ParseQueryString(queryString ?? "");
-
-    return new LiveSchema
-    {
-        Model = query["model"] ?? "nova-3",
-        Language = query["language"] ?? "en",
-        SmartFormat = (query["smart_format"] ?? "true") == "true",
-        InterimResults = (query["interim_results"] ?? "false") == "true",
-        Encoding = query["encoding"] ?? "linear16",
-        SampleRate = int.TryParse(query["sample_rate"], out var sr) ? sr : 16000,
-        Channels = int.TryParse(query["channels"], out var ch) ? ch : 1,
-    };
-}
-
 /// Handles a single session between a browser client and Deepgram.
 ///
 /// The browser-facing WebSocket is unchanged: the client still streams binary
@@ -228,6 +212,7 @@ async Task HandleSttStream(WebSocket clientWs, string? queryString, string apiKe
 
     var closeStatus = WebSocketCloseStatus.NormalClosure;
     var closeDescription = "Connection ended";
+    var connected = false;
 
     async Task SendConnectionError()
     {
@@ -236,7 +221,7 @@ async Task HandleSttStream(WebSocket clientWs, string? queryString, string apiKe
         try
         {
             await clientWs.SendAsync(
-                Encoding.UTF8.GetBytes("{\"type\":\"Error\",\"description\":\"Deepgram connection error\",\"code\":\"CONNECTION_FAILED\"}"),
+                Encoding.UTF8.GetBytes(DeepgramConnectionFailure.ErrorPayload),
                 WebSocketMessageType.Text,
                 true,
                 CancellationToken.None);
@@ -246,29 +231,38 @@ async Task HandleSttStream(WebSocket clientWs, string? queryString, string apiKe
 
     try
     {
-        var schema = BuildLiveSchema(queryString);
+        var schema = AppConfiguration.BuildLiveSchema(queryString);
         Console.WriteLine($"[{connectionId}] Connecting to Deepgram STT API...");
 
         if (!await liveClient.Connect(schema))
         {
             Console.Error.WriteLine($"[{connectionId}] Failed to connect to Deepgram");
-            closeStatus = WebSocketCloseStatus.InternalServerError;
-            closeDescription = "Deepgram connection error";
+            closeStatus = DeepgramConnectionFailure.CloseStatus;
+            closeDescription = DeepgramConnectionFailure.Description;
             await SendConnectionError();
             return;
         }
+        connected = true;
         Console.WriteLine($"[{connectionId}] ✓ Connected to Deepgram STT API");
 
         // Forward browser audio and text control frames into Deepgram until the client disconnects.
         var buffer = new byte[8192];
         while (clientWs.State == WebSocketState.Open)
         {
-            var result = await clientWs.ReceiveAsync(new ArraySegment<byte>(buffer), appCt);
-            if (result.MessageType == WebSocketMessageType.Close) break;
-            if (result.Count == 0) continue;
+            using var message = new MemoryStream();
+            WebSocketReceiveResult result;
+            do
+            {
+                result = await clientWs.ReceiveAsync(new ArraySegment<byte>(buffer), appCt);
+                if (result.MessageType == WebSocketMessageType.Close) break;
+                message.Write(buffer, 0, result.Count);
+            }
+            while (!result.EndOfMessage);
 
-            var chunk = new byte[result.Count];
-            Array.Copy(buffer, chunk, result.Count);
+            if (result.MessageType == WebSocketMessageType.Close) break;
+            if (message.Length == 0) continue;
+
+            var chunk = message.ToArray();
 
             if (result.MessageType == WebSocketMessageType.Text)
             {
@@ -288,12 +282,18 @@ async Task HandleSttStream(WebSocket clientWs, string? queryString, string apiKe
     catch (WebSocketException ex)
     {
         Console.Error.WriteLine($"[{connectionId}] WebSocket error: {ex.Message}");
+        if (DeepgramConnectionFailure.ShouldReportToBrowser(connected))
+        {
+            closeStatus = DeepgramConnectionFailure.CloseStatus;
+            closeDescription = DeepgramConnectionFailure.Description;
+            await SendConnectionError();
+        }
     }
     catch (Exception ex)
     {
         Console.Error.WriteLine($"[{connectionId}] Deepgram connection error: {ex.GetType().Name}");
-        closeStatus = WebSocketCloseStatus.InternalServerError;
-        closeDescription = "Deepgram connection error";
+        closeStatus = DeepgramConnectionFailure.CloseStatus;
+        closeDescription = DeepgramConnectionFailure.Description;
         await SendConnectionError();
     }
     finally

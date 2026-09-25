@@ -85,7 +85,7 @@ Frontend: `cd frontend && corepack pnpm install`
 ## Customization Guide
 
 ### Changing Default Parameters
-The WebSocket connection URL passes parameters to Deepgram. Find where the Deepgram WebSocket URL is constructed in the backend and modify defaults:
+The WebSocket connection query parameters are mapped to Deepgram SDK options in `AppConfiguration.BuildLiveSchema`. Modify the defaults there:
 
 | Parameter | Default | Options | Effect |
 |-----------|---------|---------|--------|
@@ -96,21 +96,14 @@ The WebSocket connection URL passes parameters to Deepgram. Find where the Deepg
 | `sample_rate` | `16000` | `8000`, `16000`, `44100`, `48000` | Audio sample rate |
 | `channels` | `1` | `1`, `2` | Mono or stereo |
 
-### Adding More Deepgram Features via Query Params
-These can be appended to the Deepgram WebSocket URL as query parameters:
+### Adding More Deepgram Features
+The backend currently maps the parameters in `AppConfiguration.BuildLiveSchema` to SDK options. Adding a query parameter alone does not send it to Deepgram; add the matching `LiveSchema` property as well.
 
 | Feature | Parameter | Example | Effect |
 |---------|-----------|---------|--------|
 | Interim results | `interim_results` | `true` | Show partial transcripts while speaking |
-| Endpointing | `endpointing` | `300` | Silence duration (ms) before finalization |
-| Utterance end | `utterance_end_ms` | `1000` | Detect end of utterance |
-| VAD events | `vad_events` | `true` | Voice activity detection events |
-| Diarization | `diarize` | `true` | Speaker identification |
-| Punctuation | `punctuate` | `true` | Auto-punctuation |
-| Keywords | `keywords` | `deepgram:2` | Boost keyword with weight |
-| No delay | `no_delay` | `true` | Minimize latency (may reduce accuracy) |
 
-**Backend:** Append params to the Deepgram URL in the WebSocket proxy handler.
+**Backend:** Read the parameter in `AppConfiguration.BuildLiveSchema` and set the supported `LiveSchema` property. Check the installed Deepgram SDK for the property name before exposing it in the frontend.
 
 **Frontend:** The frontend sends these as query params when opening the WebSocket. To add a UI control for a new param, edit `frontend/main.js` — add an input/checkbox and include it in the `URLSearchParams` when connecting.
 
@@ -145,7 +138,7 @@ The frontend is a git submodule from `deepgram-starters/live-transcription-html`
 | `DEEPGRAM_API_KEY` | Yes | — | Deepgram API key |
 | `PORT` | No | `8081` | Backend server port |
 | `HOST` | No | `0.0.0.0` | Backend bind address |
-| `SESSION_SECRET` | No | — | JWT signing secret (production) |
+| `SESSION_SECRET` | No | — | JWT signing secret; must contain at least 32 UTF-8 bytes when set |
 
 ## Conventional Commits
 
@@ -163,6 +156,9 @@ chore(deps): update frontend submodule
 ```bash
 # Run conformance tests (requires app to be running)
 make test
+
+# Run unit tests
+dotnet test tests/CsharpLiveTranscription.Tests/CsharpLiveTranscription.Tests.csproj
 
 # Manual endpoint check
 curl -sf http://localhost:8081/api/metadata | python3 -m json.tool
