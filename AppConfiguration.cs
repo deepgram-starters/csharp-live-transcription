@@ -37,7 +37,7 @@ public static class AppConfiguration
 public static class DeepgramConnectionFailure
 {
     public const string Description = "Deepgram connection error";
-    public const string ErrorPayload = "{\"type\":\"Error\",\"description\":\"Deepgram connection error\",\"code\":\"CONNECTION_FAILED\"}";
+    public const string ErrorPayload = "{\"type\":\"Error\",\"error\":{\"type\":\"connection\",\"code\":\"CONNECTION_FAILED\",\"message\":\"Deepgram connection error\"}}";
     public const WebSocketCloseStatus CloseStatus = WebSocketCloseStatus.InternalServerError;
 
     public static bool ShouldReportToBrowser(bool connected) => !connected;

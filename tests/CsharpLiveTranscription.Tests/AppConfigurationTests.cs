@@ -56,10 +56,16 @@ public class AppConfigurationTests
     {
         Assert.True(DeepgramConnectionFailure.ShouldReportToBrowser(connected: false));
         Assert.False(DeepgramConnectionFailure.ShouldReportToBrowser(connected: true));
-        Assert.Equal(System.Net.WebSockets.WebSocketCloseStatus.InternalServerError, DeepgramConnectionFailure.CloseStatus);
+        Assert.Equal(1011, (int)DeepgramConnectionFailure.CloseStatus);
 
         using var error = JsonDocument.Parse(DeepgramConnectionFailure.ErrorPayload);
         Assert.Equal("Error", error.RootElement.GetProperty("type").GetString());
-        Assert.Equal("CONNECTION_FAILED", error.RootElement.GetProperty("code").GetString());
+        Assert.Equal(2, error.RootElement.EnumerateObject().Count());
+
+        var detail = error.RootElement.GetProperty("error");
+        Assert.Equal(3, detail.EnumerateObject().Count());
+        Assert.Equal("connection", detail.GetProperty("type").GetString());
+        Assert.Equal("CONNECTION_FAILED", detail.GetProperty("code").GetString());
+        Assert.Equal("Deepgram connection error", detail.GetProperty("message").GetString());
     }
 }
